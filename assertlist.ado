@@ -398,7 +398,8 @@ syntax [, KEEP(varlist) LIST(varlist) IDlist(varlist) CHECKlist(varlist) ///
 				
 				* grab the row number to know where we need to export to
 				* Add 1 to go to the next row
-				local row `=r(N) + 1'
+				local row `=r(N) + 2'
+				noi di "`row'"
 				
 				* Grab the original varlist from sheet
 				* This will help you confirm if the new vars match the old
