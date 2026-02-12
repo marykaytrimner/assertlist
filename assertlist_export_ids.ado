@@ -1,4 +1,4 @@
-*! assertlist_export_all_ids version 1.05 - Biostat Global Consulting - 2023-01-29
+*! assertlist_export_all_ids version 1.07 - Biostat Global Consulting - 2026-01-21
 
 * This program can be used after assertlist or assertlist_cleanup to grab the list of IDs
 * that failed all assertions in a spreadsheet and export to single tab.
@@ -18,6 +18,10 @@
 * 2023-01-29	1.05	MK TRimner		Changed noFORMAT to FORMAT. it is more logical. The default now is to not format. 
 *										Added fmtids if using stata version >=15
 * 2024-03-20	1.06	MK trimner		Added code to only keep the _al_* variables
+* 2026-01-21	1.07	MK Trimner		Added code to drop if missing _al_obs_number
+*										Corrected code to provide the correct idlist
+*										Cleaned up formatting to reduce the number of formatting ids
+*										Added exclusion to not include "List of IDs failed assertions" if already created
 *******************************************************************************
 *
 * Contact Dale Rhoda (Dale.Rhoda@biostatglobal.com) with comments & suggestions.
@@ -72,7 +76,7 @@ program define assertlist_export_ids
 				* Capture the sheet name			
 				local sheet `=r(worksheet_`b')'
 				
-				if "`sheet'" != "Assertlist_Summary" {
+				if !inlist("`sheet'","Assertlist_Summary", "List of IDs failed assertions") {
 					
 					local ++sheetcount
 					
@@ -104,9 +108,16 @@ program define assertlist_export_ids
 					}
 					keep `keepvars'
 					
+					/* Create the list of idlist variables
+					preserve
+					drop _al_*
+					local varlist `r(varlist)'
+					noi di "`varlist'"
+					restore*/
+					
 					* Drop any that do not start with _al*
 					* The fix tab may have vars before the tag varaible
-					keep _al_*
+					*keep _al_*
 						
 					tempfile data
 					save `data', replace
@@ -114,6 +125,7 @@ program define assertlist_export_ids
 					capture confirm file "`data'" 
 					if _rc == 0 {
 						use "`data'", clear
+						drop if missing(_al_obs_number)
 									
 						* Create an idlist from the variables
 						local idlist
@@ -205,6 +217,8 @@ program define assertlist_export_ids
 				replace _al_number_assertions_failed = _al_number_assertions_failed + 1 if !missing(`v')
 			}
 			
+			
+			
 			order _al_idlist 
 			order _al_number_assertions_failed, before(_al_assertion_details1)
 			sort _al_obs_number _al_idlist `idlist'
@@ -212,7 +226,7 @@ program define assertlist_export_ids
 			save `assertion_ids_for_review', replace
 
 			export excel using "`excel'.xlsx", firstrow (var) sheet("List of IDs failed assertions", replace) nolabel
-		
+	
 			*******************************************************************************
 			* If the Spreadsheet thas run through assertlist_cleanup 
 			* tidy up the variable names
@@ -269,13 +283,10 @@ program define assertlist_export_ids
 						mata format_width_`m`i'' = b.add_fmtid()
 						mata: b.fmtid_set_text_wrap(format_width_`m`i'', "on")
 						mata: b.fmtid_set_column_width(format_width_`m`i'',`i',`i', `m`i'')
-						mata: b.set_fmtid(2,`i',format_width_`m`i'')
-					}
-					
-					mata assertlist_all_others = b.add_fmtid()
-					mata: b.fmtid_set_text_wrap(assertlist_all_others, "on")
-					mata: b.set_fmtid((3,`row'),(1,`col'),assertlist_all_others)
+						mata: b.fmtid_set_horizontal_align(format_width_`m`i'', "left")
 
+						mata: b.set_fmtid((2,`row'),`i',format_width_`m`i'')
+					}
 				}
 				if $FORMATTING_VERSION == 14 {
 				
@@ -334,8 +345,7 @@ program define assertlist_export_ids_clean_up
 		foreach v of varlist* {
 								
 			mata: st_local("xlcolname", invtokens(numtobase26(`n')))
-			if "`format'" != "" putexcel `xlcolname'1 = "``v''", txtwrap bold left fpattern("solid", "lightgray")
-			else 	putexcel `xlcolname'1 = "``v''"
+			putexcel `xlcolname'1 = "``v''"
 			local ++n
 		}
 	}

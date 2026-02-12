@@ -1,5 +1,4 @@
-*! assertlist_cleanup version 1.16 - Biostat Global Consulting - 2023-01-29
-
+*! assertlist_cleanup version 1.19 - Biostat Global Consulting - 2026-01-21
 * This program can be used after assertlist to cleanup the column
 * names and make them more user friendly
 
@@ -44,6 +43,12 @@
 * 2022-03-14	1.16	MK Trimner		Added txtwrap option to the rows in the failed assertion tabs 	
 * 2023-01-31	1.17	MK Trimner		Changed the noFORMAT option to be FORMAT. the default will now be to not format. 
 *										Added fmtids when using stata version >= 15
+*				1.18	MK Trimner		Changed a formatting to be >= 3		
+* 2026-02-11	1.19	MK Trimner		Trim down formatting to use the same formatids as previously used
+*										Added keepcellfmt to export option
+*										Added simplify option to hide things in the Assertlist_Summary tab
+*										Added code to highlight the cells in fix tab that should be yellow _al_correct_var_#
+*										Adjusted code to simplify formatting
 *******************************************************************************
 *
 * Contact Dale Rhoda (Dale.Rhoda@biostatglobal.com) with comments & suggestions.
@@ -51,7 +56,7 @@
 
 program define assertlist_cleanup
 
-	syntax  , EXCEL(string asis) [ NAME(string asis) IDSORT FORMAT]
+	syntax  , EXCEL(string asis) [ NAME(string asis) IDSORT FORMAT SIMPLIFY]
 
 	noi di as text "Confirming excel file exists..."
 	
@@ -75,6 +80,7 @@ program define assertlist_cleanup
 				
 	}
 	else {
+		*preserve
 		
 		* Describe excel file to determine how many sheets are present
 		capture import excel using "`excel'.xlsx", describe
@@ -87,7 +93,7 @@ program define assertlist_cleanup
 			
 			* Set excel local to new file name
 			local excel `name'
-		}
+		} // end if name != "" statement
 
 
 		* Go through each of the sheets
@@ -96,9 +102,12 @@ program define assertlist_cleanup
 			* Create a local that will hold the length of each header
 			local passthrough 0
 			local hide 0
+			local highlight 
 			
 			* Bring in the sheet
 			capture import excel using "`excel'.xlsx", describe
+			* Create a local with the cell range for sheet
+			local range `=r(range_`b')'
 			
 			* Capture the sheet name			
 			local sheet `=r(worksheet_`b')'
@@ -109,14 +118,13 @@ program define assertlist_cleanup
 				* Import file
 				noi di as text "Importing excel sheet: `sheet'..."
 				import excel "`excel'.xlsx", sheet("`sheet'") firstrow clear allstring
+
 				
 				* Grab column count
 				qui describe
-				local columns = r(k)
+				local columns = r(k) 
 				local rows = `=`r(N)'+1'
 				
-				* Create a local with the cell range for sheet
-				local range `=r(range_`b')'
 					
 				* Set local for max number of vars checked
 				local max 0
@@ -145,21 +153,24 @@ program define assertlist_cleanup
 
 				noi di as text "Renaming variables and formatting columns..."
 				foreach v of varlist * {
+
+					if "`v'" == "_al_correct_var_1" local highlight highlight(`n')
 					
 					* Rename all the variables
 					assertlist_cleanup_rename, excel(`excel') sheet(`sheet') n(`n') ///
 						max(`max') var(`v') passthrough(`passthrough') hide(`hide') rows(`rows') `format'
+						
 								
 					local ++n
-				}
-				
+				} // end foreach v of varlist loop
+			} // end Else loop	
 			* Format header row for each tab
 			if "`format'" != "" assertlist_cleanup_format_header, excel(`excel') sheet(`sheet') ///
-				passthrough(`passthrough') hide(`hide') 
+				passthrough(`passthrough') hide(`hide') `simplify'  `highlight'
 			
-			}
-		}
-	}
+		} // end loop through each of the sheets
+		*restore
+	} // end file exists loop
 
 end
 
@@ -203,7 +214,7 @@ program define assertlist_cleanup_idsort
 		
 		* Export the new sorted data
 		export excel using "`excel'.xlsx", sheet("`sheet'") sheetmodify ///
-					firstrow(var) nolabel datestring("%tdDD/Mon/CCYY")
+					firstrow(var) nolabel datestring("%tdDD/Mon/CCYY") keepcellfmt
 				
 	}
 end
@@ -269,6 +280,7 @@ syntax  , EXCEL(string asis) SHEET(string asis) N(int) MAX(int) VAR(varlist) ///
 				if "``v''"=="correct_var_`i'"	{
 					local `v' Blank Space for User to Provide Correct Value of Variable `i' 
 					local m`n'1 20
+					local highlight_var yes
 				}
 			}
 		}
@@ -280,14 +292,10 @@ syntax  , EXCEL(string asis) SHEET(string asis) N(int) MAX(int) VAR(varlist) ///
 		putexcel set "`excel'.xlsx", modify sheet("`sheet'") 
 
 		mata: st_local("xlcolname", invtokens(numtobase26(``v'n')))
-		if "`format'" != "" {
-			putexcel `xlcolname'1 = "``v''", txtwrap bold left fpattern("solid", "lightgray")
-			putexcel `xlcolname'2:`xlcolname'`rows' , txtwrap
-		}
-		else putexcel `xlcolname'1 = "``v''"
-
-		if "`hide_var'"=="yes" local hide `hide' ``v'n' 
+		putexcel `xlcolname'1 = "``v''"
 		
+		if "`hide_var'"=="yes" local hide `hide' ``v'n' 
+			
 		*if `n'==1 local passthrough `m`n'2'
 		local passthrough `passthrough' `m`n'2'
 	
@@ -307,7 +315,7 @@ end
 capture program drop assertlist_cleanup_format_header
 program define assertlist_cleanup_format_header
 
-	syntax , EXCEL(string asis) SHEET(string asis) PASSTHROUGH(string asis) HIDE(string asis) 
+	syntax , EXCEL(string asis) SHEET(string asis) PASSTHROUGH(string asis) HIDE(string asis) [SIMPLIFY HIGHLIGHT(integer 0)]
 	
 	* Format the width of each column
 	* use mata to populate table formatting
@@ -331,7 +339,7 @@ program define assertlist_cleanup_format_header
 			tempvar `v'_l
 			gen ``v'_l'=length(`v')
 			summarize ``v'_l'
-			local m`i'1=min(`=`r(max)'+1',25)
+			local m`i'1=min(`=`r(max)'+2',25)
 			local m`i'2=word("`passthrough'",`i')
 			drop ``v'_l'
 			
@@ -352,36 +360,63 @@ program define assertlist_cleanup_format_header
 			mata: b.fmtid_set_horizontal_align(assertlist_header, "left")
 			mata: b.fmtid_set_text_wrap(assertlist_header, "on")
 			
+			
 			mata: b.set_fmtid(1,(1,`m_v'),assertlist_header)
 			
 			forvalues i = 1/`m_v' {
-				local width = max(`=`m`i'1'+3',10)
-				if `m`i'2' - `m`i'1' > 5 local width `=`m`i'1'+ 11'
-				if `m`i'2' - `m`i'1' > 15 local width `=`m`i'1'+ 14'
-				*mata: b.set_column_width(`i',`i',`=min(30,`width')')
-
+				local width = max(`=`m`i'1'+4',10)
+				if `m`i'2' - `m`i'1' > 5 local width `=`m`i'1'+ 13'
+				if `m`i'2' - `m`i'1' > 15 local width `=`m`i'1'+ 15'
 				local cw `=min(30,`width')'
 				
+				
 				mata format_width_`cw' = b.add_fmtid()
-				mata: b.fmtid_set_text_wrap(format_width_`cw'', "on")
+				mata: b.fmtid_set_text_wrap(format_width_`cw', "on")
 				mata: b.fmtid_set_column_width(format_width_`cw',`i',`i', `cw')
-				mata: b.set_fmtid(2,`i',format_width_`cw')
+				mata: b.fmtid_set_horizontal_align(format_width_`cw', "left")
+
+				mata: b.set_fmtid((2,`=`r_v'+1'),`i',format_width_`cw')
 
 			}
 			
-			mata assertlist_all_others = b.add_fmtid()
-			mata: b.fmtid_set_text_wrap(assertlist_all_others, "on")
-			mata: b.set_fmtid((3,`=`r_v'+1'),(1,`m_v'),assertlist_all_others)
-		
+			
+			* Highlight the correct values yellow
+			if "`highlight'"!="0" {
+			
+				* Determine which rows need highlighted to pass through
+				local hi
+				forvalues i = `highlight'(4)`m_v' {
+					local hi `hi' `i'
+				}
+				
+				* Create fmtid for highlighting
+				mata format_highlight = b.add_fmtid()
+				mata: b.fmtid_set_fill_pattern(format_highlight, "solid","yellow")
+
+
+				foreach v in `hi' {
+					mata: b.set_fmtid((2,`r_v'),`v', format_highlight)				
+				}
+			}
+
+			
 			foreach l in `=substr("`hide'",3,.)' {	
 				mata format_hide_`l' = b.add_fmtid()
 				mata: b.fmtid_set_column_width(format_hide_`l',`l',`l',0)
 
 				mata: b.set_fmtid(`l',`l',format_hide_`l')
 			}
-
-
+			
+			if "`simplify'" != "" & "`sheet'" == "Assertlist_Summary" {
+				foreach v in 7 9 10 11 {
+					mata format_hide_`v' = b.add_fmtid()
+					mata: b.fmtid_set_column_width(format_hide_`v',`v',`v',0)
+			
+					mata: b.set_fmtid((1,`r_v'),`v',format_hide_`v')
+				}
+			}
 		}
+
 		if $FORMATTING_VERSION == 14 {
 		
 			forvalues i = 1/`m_v' {
@@ -396,9 +431,10 @@ program define assertlist_cleanup_format_header
 			}
 
 		}
-
-		* Set the row height 
+		
+		* Set the row height for either Stata version
 		mata: b.set_row_height(1,1,80)
+
 		
 		mata b.close_book()		
 	}
@@ -429,8 +465,9 @@ syntax  , EXCEL(string asis) SHEET(string asis) [FORMAT]
 		foreach v of varlist* {
 		    
 			local `v' `v'
-			if "`v'" == "_al_idlist" 					local _al_idlist 							List of Variables Used to Identify Line in Assertion
+			if "`v'" == "_al_idlist" 					local _al_idlist 						List of Variables Used to Identify Line in Assertion
 			if "`v'" == "_al_number_assertions_failed" 	local _al_number_assertions_failed 		Number of Assertions Line Failed
+			if "`v'" == "_al_obs_number"				local _al_obs_number					Observation Number in Dataset
 		}
 		
 		forvalues i = 1/`max' {
@@ -449,8 +486,7 @@ syntax  , EXCEL(string asis) SHEET(string asis) [FORMAT]
 		foreach v of varlist* {
 		    			
 		   	mata: st_local("xlcolname", invtokens(numtobase26(`n')))
-			if "`format'" != "" putexcel `xlcolname'1 = "``v''", txtwrap bold left fpattern("solid", "lightgray")
-			else putexcel `xlcolname'1 = "``v''"
+			putexcel `xlcolname'1 = "``v''"
 			local ++n
 		}
 	}

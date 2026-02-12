@@ -1,4 +1,4 @@
-*! assertlist version 2.22 - Mary Kay Trimner & Dale Rhoda - 2023-01-31
+*! assertlist version 2.24 - Mary Kay Trimner & Dale Rhoda - 2026-01-21
 *******************************************************************************
 * Change log
 * 				Updated
@@ -61,6 +61,8 @@
 *											Changed formatting to use formatids when
 *											using stata version >=15 			
 * 2024-03-20	2.23	MK Trimner			Updated the row value if sheet exists to remove blank rows	
+*											Added SIMPLIFY option
+* 2026-01-21	2.24	MK Trimner			Simplified Formatting
 *******************************************************************************
 *
 * Contact Dale Rhoda (Dale.Rhoda@biostatglobal.com) with comments & suggestions.
@@ -69,7 +71,7 @@ program assertlist
 	version 11.1
 	syntax anything(name=assertion equalok everything) [, KEEP(varlist) ///
 	       LIST(varlist) IDlist(varlist) CHECKlist(varlist) TAG(string) ///
-		   EXCEL(string asis) SHEET(string asis) FIX FORMAT]
+		   EXCEL(string asis) SHEET(string asis) FIX FORMAT SIMPLIFY]
 	
 	
 	preserve
@@ -128,7 +130,7 @@ program assertlist
 			if "`sheetmessage'" != "" local passthroughoptions `passthroughoptions' sheetmsg(`sheetmessage')
 			
 			noi write_xl_summary, assertion(`assertion') excel(`excel') ///
-			hold(`hold') summaryexists(`summaryexists') sheet(`sheet') `passthroughoptions' `format'
+			hold(`hold') summaryexists(`summaryexists') sheet(`sheet') `passthroughoptions' `format' `simplify'
 		}
 		
 		* If there were lines that failed the assertion, complete the below steps
@@ -399,7 +401,19 @@ syntax [, KEEP(varlist) LIST(varlist) IDlist(varlist) CHECKlist(varlist) ///
 				* grab the row number to know where we need to export to
 				* Add 1 to go to the next row
 				local row `=r(N) + 2'
-				noi di "`row'"
+				local last = _N
+				
+				* Add a blank between each row of assertions
+				capture confirm var AssertionSequenceNumber 
+				if _rc == 0 {
+					local value `=AssertionSequenceNumber[`last']'
+				}
+				else {
+					capture confirm var _al_check_sequence 
+					if _rc == 0 local value `=_al_check_sequence[`last']'
+				}
+				
+				if `value' != . local row = `row' + 1 
 				
 				* Grab the original varlist from sheet
 				* This will help you confirm if the new vars match the old
@@ -483,7 +497,7 @@ program define write_xl_summary
 
 	syntax, ASSERTION(string asis) EXCEL(string asis) HOLD(string asis) ///	
 			SUMMARYexists(int) SHEET(string asis) ///
-			[IDLIST(varlist) KEEP(varlist) CHECKLIST(varlist) SHEETMSG(string asis) FORMAT] 
+			[IDLIST(varlist) KEEP(varlist) CHECKLIST(varlist) SHEETMSG(string asis) FORMAT SIMPLIFY] 
 
 	qui {
 		* Write Summary tab...
@@ -552,8 +566,7 @@ program define write_xl_summary
 		* Close postfile
 		capture postclose `handle'	
 		
-		use "`results'", clear
-		
+		use "`results'", clear		
 		compress
 		
 		* Export results to Summary tab
@@ -564,7 +577,7 @@ program define write_xl_summary
 						sheetreplace cell(A1) firstrow(variable)
 						
 		* Format Summary Page
-		if "`format'" != "" format_sheet_v${FORMATTING_VERSION}, excel(`excel') sheet(Assertlist_Summary)
+		if "`format'" != "" format_sheet_v${FORMATTING_VERSION}, excel(`excel') sheet(Assertlist_Summary) `simplify'
 	}	
 end
 
@@ -677,14 +690,14 @@ syntax, EXCEL(string asis) SHEET(string asis) IDlist(varlist) CHECKlist(varlist)
 					putexcel set "`excel'.xlsx", modify sheet("`sheet'")
 					
 					mata: st_local("xlcolname", invtokens(numtobase26(`c')))
-					putexcel `xlcolname'1 = ("`v'")
-					
+					putexcel `xlcolname'1 = ("`v'")					
 					local ++c
 				}
 			}
 		}
 		
 		else {
+			
 			export excel using "`excel'.xlsx", sheet("`sheet'") ///
 				sheetreplace firstrow(var) nolabel datestring("%tdDD/Mon/CCYY") 	 
 		}
@@ -719,7 +732,7 @@ program define write_nofix_sheet
 		if `sheetexists'==0 {
 			no di as text "Results will be saved to a new sheet " ///
 						  "in `excel'.xlsx file; sheet(`sheet')."
-						  
+			
 			export excel using "`excel'.xlsx", sheet("`sheet'") ///
 				sheetreplace firstrow(var) nolabel datestring("%tdDD/Mon/CCYY") 
 			
@@ -728,6 +741,10 @@ program define write_nofix_sheet
 			no di as text "Results will be appended to " ///
 						  "pre-existing `excel'.xlsx file, " ///
 						  "sheet(`sheet')."
+						  
+						  
+			unab show: _all
+			di "`show'"
 						  
 			* Confirm all variables from sheet exist in dataset
 			* If they do not, set them as missing
@@ -739,6 +756,8 @@ program define write_nofix_sheet
 			}
 			
 			order `orgvarlist'
+			unab newvarlist: _all
+			di "`newvarlist'"
 							
 			* If the Excel sheet already exists append new results 
 			* to existing spreadsheet
@@ -844,14 +863,7 @@ program define format_sheet_v14
 				mata: b.set_column_width(`=`v'-2',`=`v'-2',0)
 			}
 		}
-		
-		* If the sheet is Assertlist_Summary, we want to make 4 columns center aligned
-		if "`sheet'" == "Assertlist_Summary" {
-			foreach v in 1 4 5 6 {
-				mata: b.set_horizontal_align((2,`r_v'),`v',"center")
-			}
-		}
-		
+				
 		mata b.close_book()	
 	}
 end		
@@ -865,7 +877,7 @@ end
 capture program drop format_sheet_v15
 program define format_sheet_v15
 
-	syntax , EXCEL(string asis) SHEET(string asis) [ HIGHLIGHT(integer 0) ] 
+	syntax , EXCEL(string asis) SHEET(string asis) [ HIGHLIGHT(integer 0) SIMPLIFY  ] 
 	
 	qui {
 		
@@ -907,29 +919,22 @@ program define format_sheet_v15
 		mata: b.fmtid_set_fontid(assertlist_header, bold_font)
 		mata: b.fmtid_set_fill_pattern(assertlist_header, "solid","lightgray")
 		mata: b.fmtid_set_horizontal_align(assertlist_header, "left")
+		mata: b.fmtid_set_text_wrap(assertlist_header, "on")
+
+		mata: b.set_fmtid(1,(1,`m_v'),assertlist_header)
 		
 		forvalues i = 1/`m_v' {
-			* Create the header format ids
-			*mata format_header_`i' = b.add_fmtid()
-			mata: b.set_fmtid(1,`i',assertlist_header)
-			
-			* Since this is row 1, make them shaded, bold and horizontal aligned
-			*mata: b.fmtid_set_fontid(format_header_`i', bold)
-			*mata: b.fmtid_set_fill_pattern(format_header_`i', "solid","lightgray")
-			*mata: b.fmtid_set_horizontal_align(format_header_`i', "left")
-						
+		
 			* Set column width
 			mata format_width_`m`i'' = b.add_fmtid()
 			mata: b.fmtid_set_text_wrap(format_width_`m`i'', "on")
 			mata: b.fmtid_set_column_width(format_width_`m`i'',`i',`i', `m`i'')
-			mata: b.set_fmtid(2,`i',format_width_`m`i'')
+			mata: b.fmtid_set_horizontal_align(format_width_`m`i'', "left")
 
+			*mata: b.set_fmtid(2,`i',format_width_`m`i'')
+			mata: b.set_fmtid((2,`=`r_v'+1'),`i',format_width_`m`i'')
 		}
-		
-		mata assertlist_all_others = b.add_fmtid()
-		mata: b.fmtid_set_text_wrap(assertlist_all_others, "on")
-		mata: b.set_fmtid((3,`=`r_v'+1'),(1,`m_v'),assertlist_all_others)		
-					
+						
 		* Highlight the correct values yellow
 		if "`highlight'"!="0" {
 		
@@ -954,13 +959,14 @@ program define format_sheet_v15
 			}
 		}
 		
-		* If the sheet is Assertlist_Summary, we want to make 4 columns center aligned
-		if "`sheet'" == "Assertlist_Summary" {
-			foreach v in 1 4 5 6 {
-				mata: b.set_horizontal_align((2,`r_v'),`v',"center")
+		if "`simplify'" != "" & "`sheet'" == "Assertlist_Summary" {
+			foreach v in 7 9 10 11 {
+				mata format_hide_`v' = b.add_fmtid()
+				mata: b.fmtid_set_column_width(format_hide_`v',`v',`v',0)
+			
+				mata: b.set_fmtid((1,`r_v'),`v',format_hide_`v')
 			}
 		}
-
 		mata b.close_book()	
 	}
 end		
