@@ -61,6 +61,7 @@ program define assertlist_export_ids
 		}
 		else {
 
+			preserve
 			* Now lets create a single dataset with the cards that need reviewed
 			capture import excel using "`excel'.xlsx", describe
 			local f `=r(N_worksheet)'
@@ -147,10 +148,10 @@ program define assertlist_export_ids
 							duplicates drop
 							save `assertion_ids_for_review', replace
 						}
-					}
+					} // end loop if file `data' does not exist
 					
-				}
-			}
+				} // end loop through if statement if sheet is not Assertlist_Summary or List of IDs failed assertions
+			} // end loop through all the different sheets
 		
 			noi di as text "Create one dataset..."
 			* replace tag value
@@ -174,8 +175,8 @@ program define assertlist_export_ids
 					local wc = wordcount("`w'")
 					forvalues n = 1/`wc' {
 						local uniquelist `uniquelist' `=word("`w'",`n')'
-					}
-				}
+					} // end loop through 1 - wourdcount of `w'
+				} // end loop through local list
 				local list2 : list uniq uniquelist
 				replace _al_idlist = `"`list2'"' if _al_obs_number == `i'
 				local orderlist `orderlist' `uniquelist'
@@ -192,11 +193,10 @@ program define assertlist_export_ids
 							local list2 : list uniq uniquelist
 							replace `v' = `"`list2'"' if _al_obs_number == `i'
 
-						}
-					}
-				}
-				
-			}
+						} // end loop through local list
+					} // end if != _al_obs_number
+				} // end loop through local list2
+			} // end loop through local id
 			
 			local order2 : list uniq orderlist
 			local order2 =subinstr("`order2'","_al_obs_number","",.)
@@ -255,7 +255,7 @@ program define assertlist_export_ids
 					local m`i'=min(`uselength',`maxlength')
 					drop ``v'_l'
 					local ++i
-				}
+				} // end loop through varlist *
 				
 				* Now format the excel
 				mata: b = xl()
@@ -287,7 +287,7 @@ program define assertlist_export_ids
 
 						mata: b.set_fmtid((2,`row'),`i',format_width_`m`i'')
 					}
-				}
+				} // end version formatting for 15
 				if $FORMATTING_VERSION == 14 {
 				
 					forvalues i = 1/`col' {
@@ -299,11 +299,13 @@ program define assertlist_export_ids
 					mata: b.set_fill_pattern(1,(1,`col'),"solid","lightgray")
 					mata: b.set_font_bold(1,(1,`col'),"on")
 					mata: b.set_horizontal_align(1,(1,`col'),"left")
-				}
+				} // end version formatting for 14
 				mata b.close_book()	
-			}
-		}
-	}
+			} // end formatting loop
+			restore
+		} // end if statement if the file provided does exist
+		
+	} // end qui loop
 end
 
 ********************************************************************************

@@ -49,6 +49,7 @@
 *										Added simplify option to hide things in the Assertlist_Summary tab
 *										Added code to highlight the cells in fix tab that should be yellow _al_correct_var_#
 *										Adjusted code to simplify formatting
+* 										
 *******************************************************************************
 *
 * Contact Dale Rhoda (Dale.Rhoda@biostatglobal.com) with comments & suggestions.
@@ -80,7 +81,7 @@ program define assertlist_cleanup
 				
 	}
 	else {
-		*preserve
+		preserve
 		
 		* Describe excel file to determine how many sheets are present
 		capture import excel using "`excel'.xlsx", describe
@@ -169,7 +170,7 @@ program define assertlist_cleanup
 				passthrough(`passthrough') hide(`hide') `simplify'  `highlight'
 			
 		} // end loop through each of the sheets
-		*restore
+		restore
 	} // end file exists loop
 
 end
